@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="theme-color" content="#07182d" />
+  <meta name="description" content="OSL Ottawa West District Battle of the Stores live Thursday scoreboard." />
+  <title>Battle of the Stores | OSL Ottawa West District</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700;800;900&family=Inter:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="site-shell">
+    <header class="topbar">
+      <div class="topbar-inner">
+        <a class="brand" href="#top" aria-label="Battle of the Stores home">
+          <span class="brand-mark">OSL.</span>
+          <span class="brand-copy"><strong>Ottawa West District</strong><small>Wireless Team Competition</small></span>
+        </a>
+        <div class="topbar-actions">
+          <span class="connection-pill" id="connection-pill"><span class="live-dot"></span><span id="connection-text">Connecting…</span></span>
+          <button class="refresh-button" id="refresh-button" type="button" aria-label="Refresh scoreboard">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 4v5h5M4 13a8.1 8.1 0 0 0 15.5 2M20 20v-5h-5"/></svg>
+            <span>Refresh</span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main id="top">
+      <section class="hero" aria-labelledby="page-title">
+        <div class="hero-pattern" aria-hidden="true"></div>
+        <div class="hero-inner hero-with-banner">
+          <div class="hero-banner-wrap">
+            <img class="hero-banner" src="battle-banner.png" alt="Battle of the Stores Back to School Edition banner" />
+          </div>
+          <div class="hero-lower">
+            <div class="hero-copy">
+              <div class="eyebrow">Live Thursday Scoreboard</div>
+              <h1 id="page-title">Battle Day <span>dashboard</span></h1>
+              <p>Using the original Battle of the Stores banner with a cleaner live scoreboard layout underneath. Every Thursday winner earns one point toward the district standings.</p>
+              <div class="hero-tags">
+                <span>#ThroatPunchThursday</span>
+                <span>Back to School Edition</span>
+                <span>Ottawa West District</span>
+              </div>
+            </div>
+            <aside class="battle-date-card" aria-label="Current battle date">
+              <span class="date-label">Battle Day</span>
+              <strong id="date-day">THU</strong>
+              <span class="date-main" id="date-main">Loading</span>
+              <span class="date-year" id="date-year"></span>
+            </aside>
+          </div>
+        </div>
+      </section>
+
+      <section class="summary-strip" aria-label="Scoreboard summary">
+        <div class="summary-inner">
+          <div class="summary-item"><strong id="battle-count">5</strong><span>Battles</span></div>
+          <div class="summary-divider"></div>
+          <div class="summary-item"><strong id="store-count">10</strong><span>Stores</span></div>
+          <div class="summary-divider"></div>
+          <div class="summary-item wide"><strong id="leader-summary">Loading…</strong><span>Current leader</span></div>
+          <div class="summary-divider desktop-only"></div>
+          <div class="summary-item wide desktop-only"><strong id="sync-time">Not synced yet</strong><span>Last updated</span></div>
+        </div>
+      </section>
+
+      <div class="content-wrap">
+        <section class="section battles-section" aria-labelledby="battles-heading">
+          <div class="section-heading">
+            <div>
+              <span class="section-kicker">This week</span>
+              <h2 id="battles-heading">Thursday Matchups</h2>
+              <p>Scores switch from <strong>TBD</strong> to final results as the battle log is updated.</p>
+            </div>
+            <div class="status-text" id="data-status" role="status">Loading scoreboard…</div>
+          </div>
+          <div class="battle-grid" id="battle-grid" aria-live="polite"></div>
+        </section>
+
+        <section class="section standings-section" aria-labelledby="standings-heading">
+          <div class="section-heading standings-heading">
+            <div>
+              <span class="section-kicker">Season standings</span>
+              <h2 id="standings-heading">District Leaderboard</h2>
+              <p>One contest point is awarded for each Thursday battle win.</p>
+            </div>
+            <div class="leader-legend"><span></span> Current leaders</div>
+          </div>
+          <div class="leaderboard-card">
+            <div class="leaderboard-head" aria-hidden="true">
+              <span>Rank</span><span>Store</span><span>Points</span>
+            </div>
+            <div class="leaderboard" id="leaderboard"></div>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <footer>
+      <div><strong>Battle of the Stores</strong><span>OSL Ottawa West District</span></div>
+      <div class="footer-right"><span>Scoreboard powered by the Thursday Battle Log</span><span class="version">Site v1.2</span></div>
+    </footer>
+  </div>
+
+  <script src="app.js" defer></script>
+</body>
+</html>
