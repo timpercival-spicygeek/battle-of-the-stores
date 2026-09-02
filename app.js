@@ -1,6 +1,7 @@
 const SHEET_ID = '16h5Es-wSjMliqfT4I59HEpSMjXP8lspta-wTZrPHhkw';
 const SHEET_NAME = 'Website Feed';
-const GVIZ_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(SHEET_NAME)}`;
+const GVIZ_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?sheet=${encodeURIComponent(SHEET_NAME)}`;
+const AUTO_REFRESH_MS = 60_000;
 
 const fallbackData = {
   latestThursday: '2026-09-03',
@@ -46,11 +47,10 @@ function value(cell) {
 function boolish(v) { return String(v).toLowerCase() === 'true'; }
 function num(v) { const n = Number(v); return Number.isFinite(n) ? n : 0; }
 
-function parseGviz(text) {
-  const start = text.indexOf('{');
-  const end = text.lastIndexOf('}');
-  if (start < 0 || end < 0) throw new Error('Unexpected Google Sheets response');
-  const payload = JSON.parse(text.slice(start, end + 1));
+function parseGvizPayload(payload) {
+  if (!payload || !payload.table || !Array.isArray(payload.table.rows)) {
+    throw new Error('Unexpected Google Sheets response');
+  }
   const rows = payload.table.rows.map(r => (r.c || []).map(value));
 
   const latestRow = rows.find(r => r[0] === 'STORE_STANDINGS');
@@ -77,6 +77,51 @@ function parseGviz(text) {
   }
   if (!standings.length || !battles.length) throw new Error('Scoreboard data was incomplete');
   return { latestThursday, standings, battles };
+}
+
+function loadGvizJsonp() {
+  return new Promise((resolve, reject) => {
+    const callbackName = `battleSheetCallback_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const script = document.createElement('script');
+    let settled = false;
+
+    const cleanup = () => {
+      if (script.parentNode) script.parentNode.removeChild(script);
+      try { delete window[callbackName]; } catch { window[callbackName] = undefined; }
+    };
+
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(new Error('Google Sheets request timed out'));
+    }, 10000);
+
+    window[callbackName] = payload => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      cleanup();
+      if (payload?.status === 'error') {
+        reject(new Error(payload.errors?.[0]?.detailed_message || 'Google Sheets returned an error'));
+        return;
+      }
+      resolve(payload);
+    };
+
+    script.onerror = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      cleanup();
+      reject(new Error('Unable to load Google Sheets feed'));
+    };
+
+    const tqx = encodeURIComponent(`responseHandler:${callbackName}`);
+    script.src = `${GVIZ_URL}&tqx=${tqx}&_=${Date.now()}`;
+    script.async = true;
+    document.head.appendChild(script);
+  });
 }
 
 function dateParts(dateString) {
@@ -180,9 +225,8 @@ async function loadScoreboard() {
   els.connectionText.textContent = 'Connecting…';
   els.status.textContent = 'Loading scoreboard…';
   try {
-    const res = await fetch(`${GVIZ_URL}&_=${Date.now()}`, { cache:'no-store' });
-    if (!res.ok) throw new Error(`Google Sheets returned ${res.status}`);
-    const data = parseGviz(await res.text());
+    const payload = await loadGvizJsonp();
+    const data = parseGvizPayload(payload);
     render(data,true);
   } catch (err) {
     console.warn('Live scoreboard unavailable, using saved data.',err);
@@ -194,4 +238,18 @@ async function loadScoreboard() {
 }
 
 els.refresh.addEventListener('click',loadScoreboard);
+
+let autoRefreshTimer = null;
+function startAutoRefresh() {
+  if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+  autoRefreshTimer = setInterval(() => {
+    if (!document.hidden) loadScoreboard();
+  }, AUTO_REFRESH_MS);
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) loadScoreboard();
+});
+
 loadScoreboard();
+startAutoRefresh();
