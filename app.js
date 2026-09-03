@@ -1,6 +1,5 @@
 const SHEET_ID = '16h5Es-wSjMliqfT4I59HEpSMjXP8lspta-wTZrPHhkw';
 const SHEET_NAME = 'Website Feed';
-const GVIZ_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?sheet=${encodeURIComponent(SHEET_NAME)}`;
 const AUTO_REFRESH_MS = 60_000;
 
 const fallbackData = {
@@ -18,8 +17,8 @@ const fallbackData = {
     { storeNo: '3638', store: 'Barrhaven', points: 1, rank: 1 }
   ],
   battles: [
-    { date:'2026-09-03', battle:1, store1:'Kanata Stittsville', tpp1:0, point1:false, store2:'Barrhaven', tpp2:0, point2:false, notes:'' },
-    { date:'2026-09-03', battle:2, store1:'Kanata Centrum', tpp1:0, point1:false, store2:'Ottawa South', tpp2:0, point2:false, notes:'' },
+    { date:'2026-09-03', battle:1, store1:'Kanata Stittsville', tpp1:1.0, point1:false, store2:'Barrhaven', tpp2:0, point2:false, notes:'' },
+    { date:'2026-09-03', battle:2, store1:'Kanata Centrum', tpp1:2.0, point1:false, store2:'Ottawa South', tpp2:0, point2:false, notes:'' },
     { date:'2026-09-03', battle:3, store1:'Pembroke', tpp1:0, point1:false, store2:'Bayshore', tpp2:0, point2:false, notes:'' },
     { date:'2026-09-03', battle:4, store1:'Renfrew', tpp1:0, point1:false, store2:'Baseline', tpp2:0, point2:false, notes:'' },
     { date:'2026-09-03', battle:5, store1:'Carleton Place', tpp1:0, point1:false, store2:'Trainyards', tpp2:0, point2:false, notes:'' }
@@ -35,93 +34,98 @@ const els = {
   refresh: document.getElementById('refresh-button')
 };
 
+let googleReady = false;
+let loading = false;
+let autoRefreshTimer = null;
+
 function escapeHTML(input) {
   return String(input ?? '').replace(/[&<>'"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]));
 }
-function value(cell) {
-  if (!cell) return '';
-  if (cell.f != null) return String(cell.f);
-  if (cell.v == null) return '';
-  return String(cell.v);
-}
-function boolish(v) { return String(v).toLowerCase() === 'true'; }
 function num(v) { const n = Number(v); return Number.isFinite(n) ? n : 0; }
+function boolish(v) { return v === true || String(v).toLowerCase() === 'true'; }
 
-function parseGvizPayload(payload) {
-  if (!payload || !payload.table || !Array.isArray(payload.table.rows)) {
-    throw new Error('Unexpected Google Sheets response');
+function formattedCell(table, row, col) {
+  const formatted = table.getFormattedValue(row, col);
+  if (formatted !== '') return formatted;
+  const raw = table.getValue(row, col);
+  if (raw instanceof Date) {
+    const y = raw.getFullYear();
+    const m = String(raw.getMonth() + 1).padStart(2, '0');
+    const d = String(raw.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
   }
-  const rows = payload.table.rows.map(r => (r.c || []).map(value));
+  if (raw == null) return '';
+  return String(raw);
+}
 
-  const latestRow = rows.find(r => r[0] === 'STORE_STANDINGS');
-  const latestThursday = latestRow?.[6] || fallbackData.latestThursday;
-  const currentIndex = rows.findIndex(r => r[0] === 'CURRENT_BATTLES');
+function queryRange(range, headers) {
+  return new Promise((resolve, reject) => {
+    if (!googleReady || !window.google?.visualization?.Query) {
+      reject(new Error('Google Visualization client is not ready'));
+      return;
+    }
+
+    const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?sheet=${encodeURIComponent(SHEET_NAME)}&range=${encodeURIComponent(range)}&headers=${headers}&_=${Date.now()}`;
+    const query = new google.visualization.Query(url);
+    query.send(response => {
+      if (response.isError()) {
+        const detail = response.getDetailedMessage ? response.getDetailedMessage() : '';
+        reject(new Error(`${response.getMessage()}${detail ? `: ${detail}` : ''}`));
+        return;
+      }
+      resolve(response.getDataTable());
+    });
+  });
+}
+
+async function getLiveData() {
+  // Query separate, consistently typed ranges. This avoids Google guessing one data type
+  // for the mixed marker/date/store-number column in the full Website Feed sheet.
+  const [dateTable, standingsTable, battlesTable] = await Promise.all([
+    queryRange('G1:G1', 0),
+    queryRange('A2:D12', 1),
+    queryRange('A15:I30', 1)
+  ]);
+
+  const latestThursday = formattedCell(dateTable, 0, 0) || fallbackData.latestThursday;
 
   const standings = [];
-  for (let i = 2; i < rows.length; i++) {
-    const r = rows[i];
-    if (!r[0] || r[0] === 'CURRENT_BATTLES') break;
-    if (/^\d+$/.test(r[0])) standings.push({ storeNo:r[0], store:r[1], points:num(r[2]), rank:num(r[3]) });
+  for (let r = 0; r < standingsTable.getNumberOfRows(); r++) {
+    const storeNo = formattedCell(standingsTable, r, 0);
+    const store = formattedCell(standingsTable, r, 1);
+    if (!storeNo || !store) continue;
+    standings.push({
+      storeNo,
+      store,
+      points: num(standingsTable.getValue(r, 2)),
+      rank: num(standingsTable.getValue(r, 3))
+    });
   }
 
   const battles = [];
-  if (currentIndex >= 0) {
-    for (let i = currentIndex + 2; i < rows.length; i++) {
-      const r = rows[i];
-      if (!r[1] || !r[2] || !r[5]) continue;
-      battles.push({
-        date:r[0], battle:num(r[1]), store1:r[2], tpp1:num(r[3]), point1:boolish(r[4]),
-        store2:r[5], tpp2:num(r[6]), point2:boolish(r[7]), notes:r[8] || ''
-      });
-    }
+  for (let r = 0; r < battlesTable.getNumberOfRows(); r++) {
+    const battle = num(battlesTable.getValue(r, 1));
+    const store1 = formattedCell(battlesTable, r, 2);
+    const store2 = formattedCell(battlesTable, r, 5);
+    if (!battle || !store1 || !store2) continue;
+
+    battles.push({
+      date: formattedCell(battlesTable, r, 0) || latestThursday,
+      battle,
+      store1,
+      tpp1: num(battlesTable.getValue(r, 3)),
+      point1: boolish(battlesTable.getValue(r, 4)),
+      store2,
+      tpp2: num(battlesTable.getValue(r, 6)),
+      point2: boolish(battlesTable.getValue(r, 7)),
+      notes: formattedCell(battlesTable, r, 8)
+    });
   }
-  if (!standings.length || !battles.length) throw new Error('Scoreboard data was incomplete');
+
+  if (!standings.length) throw new Error('No standings returned from Website Feed');
+  if (!battles.length) throw new Error('No current battles returned from Website Feed');
+
   return { latestThursday, standings, battles };
-}
-
-function loadGvizJsonp() {
-  return new Promise((resolve, reject) => {
-    const callbackName = `battleSheetCallback_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-    const script = document.createElement('script');
-    let settled = false;
-
-    const cleanup = () => {
-      if (script.parentNode) script.parentNode.removeChild(script);
-      try { delete window[callbackName]; } catch { window[callbackName] = undefined; }
-    };
-
-    const timer = setTimeout(() => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      reject(new Error('Google Sheets request timed out'));
-    }, 10000);
-
-    window[callbackName] = payload => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      cleanup();
-      if (payload?.status === 'error') {
-        reject(new Error(payload.errors?.[0]?.detailed_message || 'Google Sheets returned an error'));
-        return;
-      }
-      resolve(payload);
-    };
-
-    script.onerror = () => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      cleanup();
-      reject(new Error('Unable to load Google Sheets feed'));
-    };
-
-    const tqx = encodeURIComponent(`responseHandler:${callbackName}`);
-    script.src = `${GVIZ_URL}&tqx=${tqx}&_=${Date.now()}`;
-    script.async = true;
-    document.head.appendChild(script);
-  });
 }
 
 function dateParts(dateString) {
@@ -155,7 +159,7 @@ function renderBattles(battles) {
   const sorted = [...battles].sort((a,b) => a.battle - b.battle);
   els.grid.innerHTML = sorted.map((b, index) => {
     const complete = isFinal(b);
-    const state = complete ? 'Final' : 'Scheduled';
+    const state = complete ? 'In Progress / Scored' : 'Scheduled';
     const featured = sorted.length % 2 === 1 && index === sorted.length - 1 ? ' featured' : '';
     return `<article class="battle-card${featured}">
       <div class="battle-topbar">
@@ -220,36 +224,45 @@ function render(data, live) {
 }
 
 async function loadScoreboard() {
+  if (loading) return;
+  loading = true;
   els.refresh.classList.add('loading');
   els.refresh.disabled = true;
-  els.connectionText.textContent = 'Connecting…';
-  els.status.textContent = 'Loading scoreboard…';
+  els.connectionText.textContent = googleReady ? 'Syncing…' : 'Connecting…';
+  els.status.textContent = googleReady ? 'Refreshing live scoreboard…' : 'Connecting to Google Sheet…';
+
   try {
-    const payload = await loadGvizJsonp();
-    const data = parseGvizPayload(payload);
-    render(data,true);
+    if (!googleReady) throw new Error('Google Visualization client is not ready');
+    const data = await getLiveData();
+    render(data, true);
   } catch (err) {
-    console.warn('Live scoreboard unavailable, using saved data.',err);
-    render(fallbackData,false);
+    console.error('Live scoreboard error:', err);
+    render(fallbackData, false);
+    els.status.textContent = `Live feed error · ${err.message}`;
   } finally {
     els.refresh.classList.remove('loading');
     els.refresh.disabled = false;
+    loading = false;
   }
 }
 
-els.refresh.addEventListener('click',loadScoreboard);
-
-let autoRefreshTimer = null;
-function startAutoRefresh() {
-  if (autoRefreshTimer) clearInterval(autoRefreshTimer);
-  autoRefreshTimer = setInterval(() => {
-    if (!document.hidden) loadScoreboard();
-  }, AUTO_REFRESH_MS);
-}
-
+els.refresh.addEventListener('click', loadScoreboard);
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) loadScoreboard();
+  if (!document.hidden && googleReady) loadScoreboard();
 });
 
-loadScoreboard();
-startAutoRefresh();
+render(fallbackData, false);
+
+if (window.google?.charts) {
+  google.charts.load('current', { packages: ['table'] });
+  google.charts.setOnLoadCallback(() => {
+    googleReady = true;
+    loadScoreboard();
+    if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+    autoRefreshTimer = setInterval(() => {
+      if (!document.hidden) loadScoreboard();
+    }, AUTO_REFRESH_MS);
+  });
+} else {
+  els.status.textContent = 'Live feed error · Google Charts loader did not start';
+}
