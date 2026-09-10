@@ -79,8 +79,6 @@ function queryRange(range, headers) {
 }
 
 async function getLiveData() {
-  // Query separate, consistently typed ranges. This avoids Google guessing one data type
-  // for the mixed marker/date/store-number column in the full Website Feed sheet.
   const [dateTable, standingsTable, battlesTable] = await Promise.all([
     queryRange('G1:G1', 0),
     queryRange('A2:D12', 1),
@@ -104,10 +102,13 @@ async function getLiveData() {
 
   const battles = [];
   for (let r = 0; r < battlesTable.getNumberOfRows(); r++) {
-    const battle = num(battlesTable.getValue(r, 1));
     const store1 = formattedCell(battlesTable, r, 2);
     const store2 = formattedCell(battlesTable, r, 5);
-    if (!battle || !store1 || !store2) continue;
+    if (!store1 || !store2) continue;
+
+    // Battle number is optional in the Sheet. If blank, assign 1–5 by row order.
+    const enteredBattle = num(battlesTable.getValue(r, 1));
+    const battle = enteredBattle || (battles.length + 1);
 
     battles.push({
       date: formattedCell(battlesTable, r, 0) || latestThursday,
